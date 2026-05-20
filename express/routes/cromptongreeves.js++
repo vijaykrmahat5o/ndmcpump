@@ -1,0 +1,764 @@
+var express = require('express');
+var router = express.Router();
+//var conn = require('./db');
+var md5 = require('md5');
+var empty = require('is-empty');
+const fs = require('fs');
+var moment = require('moment');
+//var dateFormat = require('dateformat');
+
+const fileUpload = require('express-fileupload');
+router.use(fileUpload({
+    useTempFiles : true,
+    tempFileDir : '/tmp/'
+})); 
+
+
+var mysql = require('mysql');
+
+var pool = mysql.createPool({
+    connectionLimit : 50,
+    host: 'localhost',
+    user: 'ccms_usr',
+    password: 'ah8vx61mxrbv',
+    database: 'ccms_cromptongreeves',
+    multipleStatements: true,
+    dateStrings: [
+      'DATE',
+      'DATETIME'
+    ]
+});
+
+var import_data = [];
+var import_result = [];
+var import_index = 0;
+
+/* GET home page. */
+router.get('/', function(req, res, next) {
+  res.render('index', { title: 'Express' });
+});
+
+router.get('/api/', function(req, res, next) {
+  res.render('index', { title: 'Express' });
+});
+
+function checkAuth(req, res, next) {
+	var accesskey = req.body.accesskey;
+
+	if (!accesskey) {
+		console.log('***************** Unauthorised Access! ***************');
+		var mess = {'error':1,'message':'Unauthorised Access!','result':0};
+		res.send(JSON.stringify(mess));
+	} else {
+	  	//var accesskey = req.body.accesskey;
+
+	  	console.log("CHK AUTH "+req.hostname+" "+accesskey);
+
+	  	pool.getConnection(function(err, connection) {
+			if (err) console.log(err);
+
+			var sql = 'SELECT ap.user_id, u.permissions from access_permission ap LEFT JOIN users u ON ap.user_id=u.id WHERE ap.access_key = "'+accesskey+'" AND ap.is_valid=1;';
+			connection.query(sql, function (error, result) {
+				if (error) {
+			  		console.log(error);
+			  		connection.release();
+						var mess = {'error':1,'message':'Database issue. please login again!','result':0};
+						res.send(JSON.stringify(mess));
+			  	}else{
+						if(result.length > 0){
+							console.log('------x------ LOGIN SUCCESSFULLY ------x------');
+							req.user_id = result[0].user_id;
+							req.permissions = JSON.parse(result[0].permissions);
+							connection.release();
+							
+
+							next();
+						}else{
+							connection.release();
+							console.log('!!!!!!!!!!! SECURITY ISSUE !!!!!!!!!!!!');
+							var mess = {'error':2,'message':'Session Timeout. For security reason, please login again!','result':0};
+							res.send(JSON.stringify(mess));
+						}
+					}
+			});
+		})
+	}
+}
+function saveActivity(req, res, next){
+	console.log("------ SAVE USER ACTIVITY ------ "+req.user_id+" "+req.url);
+	if (!req.user_id) {
+		next();
+	} else {
+	  	POOLDB[req.hostname].getConnection(function(err, connection) {
+			if (err){
+				console.log(err);
+				next();
+			}else{
+				
+				var insertq = {
+					user_id: req.user_id,
+					url: req.url,
+					data: JSON.stringify(req.body)
+				}
+				var sql = 'INSERT INTO user_logs SET ? , insert_time = NOW()';
+				var q = connection.query(sql, insertq, function (error, result) {
+					connection.release();
+
+					//console.log(q.sql);
+
+					next();
+				});
+			}
+		})
+	}
+}
+
+router.post('/login', function(req, res, next) {
+	var userinfo = req.body.userinfo;
+	var pass = req.body.password;
+
+	console.log("HOST NAME "+req.hostname);
+	
+	pool.getConnection(function(pool_err, connection) {
+		if (pool_err) console.log(pool_err);
+
+		var sql = 'SELECT us.id, us.username, us.email, us.role, us.permissions, ur.title as role_title, ur.options FROM users us LEFT JOIN user_roles ur ON us.role=ur.id WHERE (us.email="'+userinfo+'" AND us.password=MD5("'+pass+'")) OR (us.username="'+userinfo+'" AND us.password=MD5("'+pass+'"))';
+	
+		connection.query(sql, function (usr_err, usr_result) {
+			connection.release();
+
+			if (usr_err) {
+		  		console.log(usr_err);
+				var mess = {'error':1, 'message':'Database Issue!', 'result':{}};
+				res.send(JSON.stringify(mess));
+		  }else{
+		 	// console.log('The solution is: ', rows[0].device_id)
+				if(usr_result.length > 0){
+					var access_key = new Date().getTime();
+					var user_id = usr_result[0].id;
+					var sql = '';
+
+					if(usr_result[0].multi_login == 0 || usr_result[0].multi_login == '0'){
+						sql += 'UPDATE access_permission SET is_valid=0 WHERE user_id="'+user_id+'";';
+					}
+					sql += 'INSERT INTO access_permission (user_id, access_key, is_valid, insert_time) VALUES ("'+user_id+'","'+access_key+'",1,NOW())';
+
+					pool.getConnection(function(err, connection) {
+						if (err) console.log(err);
+
+						connection.query(sql, function (perm_err, perm_result) {
+							connection.release();
+							if (perm_err) {
+								console.log(perm_err);
+							}
+
+							var permissions = JSON.parse(usr_result[0].permissions);
+							
+
+							if(!empty(permissions.state_perm)){
+								console.log(">>>> "+permissions.state_perm.replace("-","_").toUpperCase()+" ");
+							}
+
+							var o = {};
+								o.access_key = access_key;
+								o.user_id = usr_result[0].id;
+								o.username = usr_result[0].username;
+								o.email = usr_result[0].email;
+								o.role = usr_result[0].role;
+								o.permissions = JSON.stringify(permissions);
+								o.role_title = usr_result[0].role_title;
+								o.options = usr_result[0].options;
+								if(!empty(permissions.state_perm)){
+									//o.ip_addr = STATEIP[permissions.state_perm.replace("-","_").toUpperCase()];
+								}else{
+									//o.ip_addr = '';
+								}
+							var mess = {'error':0, 'message':'Login Successfully!', 'result':o};
+							res.send(JSON.stringify(mess));
+
+						});
+					});
+				}else{
+					var mess = {'error':1, 'message':'Incrorrect Email or Password!', 'result':{}};
+					res.send(JSON.stringify(mess));
+				}
+			}
+		});
+	});
+});
+
+/*
+router.post('/dashboard', function(req, res, next) {
+	var perms = req.permissions;
+
+	var d = '130b150d381060890100e60802000000001d0006040000f604000000130b150600006412000600ff00';
+
+	var STATUS = "";
+	var TYPE = "";
+	var ACTUAL_DATA = d;
+	var ACTUALDATALENGTH = d.length;
+	
+	var ANALOGINPUT1 = "";
+	
+	var fx = 0; 
+	var lx = 0;
+	
+	fx += lx; lx = 6;
+	var IO_DATE = d.substr(fx, lx);
+	var IO_DD = Pad(parseInt(IO_DATE.substr(0, 2), 16), 2);
+	var IO_MM = Pad(parseInt(IO_DATE.substr(2, 2), 16), 2);
+	var IO_YY = Pad(parseInt(IO_DATE.substr(4, 2), 16), 2);
+	
+	fx += lx; lx = 6;
+	var IO_TIME = d.substr(fx, lx);
+	var IO_HH = Pad(parseInt(IO_TIME.substr(0, 2), 16), 2);
+	var IO_MI = Pad(parseInt(IO_TIME.substr(2, 2), 16), 2);
+	var IO_SS = Pad(parseInt(IO_TIME.substr(4, 2), 16), 2);
+	var IO_STAMP = IO_YY+"-"+IO_MM+"-"+IO_DD+" "+IO_HH+":"+IO_MI+":"+IO_SS;
+	var DATA_STAMP = IO_STAMP;
+
+
+	
+	fx += lx; lx = 8;
+	if(d.length < (fx+lx)){
+		console.log("DATA IS NOT APPROPRIATE IN LENGTH");
+		return;
+	}
+	var unique_str = '';
+	for(var i = fx+lx; i>fx; i-=2){
+		unique_str += d.substr(i-2, 2);
+	}	
+	var UNIQUE_ID = Pad(parseInt(unique_str, 16), 6);
+	
+
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var VOLTAGE = HexToDec(String(v2)+String(v1));
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var CURRENT = HexToDec(String(v2)+String(v1));
+	
+	fx += lx; lx = 2;
+	var PF = parseInt(d.substr(fx, lx), 16);
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var KW = HexToDec(String(v2)+String(v1));
+
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var KVA = HexToDec(String(v2)+String(v1));
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v3 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v4 = d.substr(fx,lx);
+	var KWH = HexToDec(String(v4)+String(v3)+String(v2)+String(v1));
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v3 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v4 = d.substr(fx,lx);
+	var KVAH = HexToDec(String(v4)+String(v3)+String(v2)+String(v1));
+
+	
+	fx += lx; lx = 2;
+	var ON_OFF_STATUS = parseInt(d.substr(fx, lx), 16);
+	
+	fx += lx; lx = 6;
+	var IO_DATE = d.substr(fx, lx);
+	var IO_DD = Pad(parseInt(IO_DATE.substr(0, 2), 16), 2);
+	var IO_MM = Pad(parseInt(IO_DATE.substr(2, 2), 16), 2);
+	var IO_YY = Pad(parseInt(IO_DATE.substr(4, 2), 16), 2);
+	
+	fx += lx; lx = 6;
+	var IO_TIME = d.substr(fx, lx);
+	var IO_HH = Pad(parseInt(IO_TIME.substr(0, 2), 16), 2);
+	var IO_MI = Pad(parseInt(IO_TIME.substr(2, 2), 16), 2);
+	var IO_SS = Pad(parseInt(IO_TIME.substr(4, 2), 16), 2);
+	var ON_OFF_TIME = IO_YY+"-"+IO_MM+"-"+IO_DD+" "+IO_HH+":"+IO_MI+":"+IO_SS;
+	
+	fx += lx; lx = 2;
+	var PWM = parseInt(d.substr(fx, lx), 16);
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var SCHEDULE_ON_TIME = Pad(HexToDec(v1),2)+':'+Pad(HexToDec(v2),2);
+	
+	fx += lx; lx = 2;
+	var v1 = d.substr(fx,lx);
+	fx += lx; lx = 2;
+	var v2 = d.substr(fx,lx);
+	var SCHEDULE_OFF_TIME = Pad(HexToDec(v1),2)+':'+Pad(HexToDec(v2),2);
+	var LIGHT_ON_HOURS = SCHEDULE_OFF_TIME;
+	
+	fx += lx; lx = 2;
+	var ANALOG_INPUT = d.substr(fx, lx);
+	
+	
+	fx += lx; lx = 2;
+	var RELAY_STATUS = d.substr(fx, lx);
+	
+	
+	console.log("DATA STAMP "+DATA_STAMP);
+	console.log("UNIQUE "+UNIQUE_ID);
+	console.log("VOLTAGE "+VOLTAGE);
+	console.log("CURRENT "+CURRENT);
+	console.log("PF "+PF);
+	console.log("KW "+KW);
+	console.log("KVA "+KVA);
+	console.log("KWH "+KWH);
+	console.log("KVAH "+KVAH);
+	console.log("ON_OFF_STATUS "+ON_OFF_STATUS);
+	console.log("ON_OFF_TIME "+ON_OFF_TIME);
+	console.log("PWM "+PWM);
+	console.log("SCHEDULE_ON_TIME "+SCHEDULE_ON_TIME);
+	console.log("SCHEDULE_OFF_TIME "+SCHEDULE_OFF_TIME);
+	console.log("LIGHT_ON_HOURS "+LIGHT_ON_HOURS);
+	console.log("ANALOG_INPUT "+ANALOG_INPUT);
+	console.log("RELAY_STATUS "+RELAY_STATUS);
+	console.log("ANALOG_INPUT "+ANALOG_INPUT);
+
+	
+	var o = {'devices': []};
+ 	var mess = {'error':0,'message':'Master devices!','result':o};
+	res.send(JSON.stringify(mess));
+});
+*/
+
+router.post('/command', function(req, res, next) {
+	var data = req.body;
+
+	const https = require('https');
+	const crypto = require('crypto');
+	const moment = require('moment');
+
+	const DOWNLINK_HOSTNAME = 'thingparkenterprise.eu.actility.com';
+	const DOWNLINK_PATH     = '/thingpark/lrc/rest/downlink';
+
+	const AS_KEY              = '5edb5c305ff4913c199966ce6a429915';
+	const AS_ID               = 'TWA_100047233.56980.AS';
+
+	var DevEUI              = '';
+	const FPort               = 7;
+	var Payload             = '';
+
+	if(data.action == 'LIGHTON'){
+		Payload = '254C4947485430304F4E4E3030303023';
+	}else if(data.action == 'LIGHTOFF'){
+		Payload = '254C4947485430304F46463030303023';
+	}
+	if(Payload == ''){
+		var mess = {'error':1,'message':'Wrong payload!','result':0};
+		res.send(JSON.stringify(mess));
+		return;
+	}
+
+	var sql = "SELECT md.dev_uid, md.location_lat, md.location_lng, md.location, md.unique_no, dld.voltage, dld.current, dld.kw, dld.kwh, dld.on_off_status, dld.on_off_time, dld.data_stamp, dld.update_time FROM master_device md LEFT JOIN trans_last_data dld ON dld.dev_uid = md.dev_uid WHERE md.unique_no = '"+data.unique_no+"'";
+
+	pool.getConnection(function(err, connection) {
+		if (err) {
+			console.log(err);
+			var mess = {'error':1,'message':'Database query error!','result':[],'s':sql};
+			res.send(JSON.stringify(mess));
+		}else{
+			connection.query(sql, function (error, result) {
+				connection.release();
+
+				if(result.length > 0){
+					DevEUI = result[0].dev_uid;
+
+
+
+					const Confirmed           = false     // optional, Possible values: Ture|False
+					const FlushDownlinkQueue  = false     // optional, Possible values: Ture|False
+					const ValidityTime        = undefined // optional, Example: "2018-10-17T16:38:46.882+02:00"
+					const CorrelationID       = undefined // optional, Example: "1234"
+
+					query_string = 'DevEUI=' + DevEUI + '&FPort=' + FPort.toString() + '&Payload=' + Payload;
+
+					// 'Confirmed', 'FlushDownlinkQueue' and 'ValidityTime' are optional part of the query_string
+					if (Confirmed) {
+					    query_string += '&Confirmed=1';
+					}
+					if (FlushDownlinkQueue) {
+					    query_string += '&FlushDownlinkQueue=1';
+					}
+					if (ValidityTime) {
+					    query_string += '&ValidityTime=' + ValidityTime;
+					}
+
+					// 'AS_ID' and 'Time' are mandatory part of the query_string
+					Time = moment().format();
+					query_string += '&AS_ID=' + AS_ID + '&Time=' + Time; 
+
+					// 'CorrelationID' is optional part of the query_string
+					if (CorrelationID) {
+					    query_string += '&CorrelationID=' + CorrelationID;
+					}
+
+					// 'Token' is mandatory part of the query_string
+					Token = crypto.createHash('sha256').update(query_string + AS_KEY).digest('hex');
+					query_string += '&Token=' + Token;
+
+					// The 'Time' parameter within the query_string includes ':' and '+' characters that have to be encoded
+					query_string = query_string.replace(/\:/gi, '%3A').replace(/\+/gi, '%2B');
+
+					// ----------------------------------
+
+					 console.log(query_string);
+
+					const reqt = https.request(
+					    {
+					        hostname: DOWNLINK_HOSTNAME,
+					        path: DOWNLINK_PATH + '?' + query_string,
+					        method: 'POST',
+					    },
+					    res => {
+					        console.log(`statusCode: ${res.statusCode}`);
+					        res.on('data', d => {
+					            console.log(d.toString(), '\n');
+					        });
+					    }
+					)
+
+					reqt.on('error', error => {
+					    console.error(error)
+					})
+					  
+					reqt.write('')
+					reqt.end();
+
+					var mess = {'error':0,'message':'Command Send Successfully!','result':1};
+					res.send(JSON.stringify(mess));
+					
+
+
+				}else{
+					var mess = {'error':1,'message':'Wrong unique number!','result':0};
+					res.send(JSON.stringify(mess));
+					return;
+				}
+				
+			});
+		}
+	});
+
+	
+
+	
+});
+
+router.post('/pushdata', function(req, res, next) {
+	var data = req.body;
+	console.log(data);
+	//if(data.DevEUI_uplink != ''){
+		
+		var DevEUI_data = data.DevEUI_uplink;
+		var DEV_UID = DevEUI_data.DevEUI;
+		var d = DevEUI_data.payload_hex;
+
+		var regExp = /(?<=7b)(.*)(?=7d)/;
+    var matches = DevEUI_data.payload_hex.match(regExp) 
+    var d = '';
+
+    console.log(JSON.stringify(matches));
+
+    if(!empty(matches)){
+    	if(matches.length > 0){
+    		d = matches[1];
+				var ACTUAL_DATA = d;
+				var ACTUALDATALENGTH = d.length;
+				
+				var ANALOGINPUT1 = "";
+				
+				var fx = 0; 
+				var lx = 0;
+				
+				fx += lx; lx = 6;
+				var IO_DATE = d.substr(fx, lx);
+				var IO_DD = Pad(parseInt(IO_DATE.substr(0, 2), 16), 2);
+				var IO_MM = Pad(parseInt(IO_DATE.substr(2, 2), 16), 2);
+				var IO_YY = Pad(parseInt(IO_DATE.substr(4, 2), 16), 2);
+				
+				fx += lx; lx = 6;
+				var IO_TIME = d.substr(fx, lx);
+				var IO_HH = Pad(parseInt(IO_TIME.substr(0, 2), 16), 2);
+				var IO_MI = Pad(parseInt(IO_TIME.substr(2, 2), 16), 2);
+				var IO_SS = Pad(parseInt(IO_TIME.substr(4, 2), 16), 2);
+				var IO_STAMP = "20"+IO_YY+"-"+IO_MM+"-"+IO_DD+" "+IO_HH+":"+IO_MI+":"+IO_SS;
+				var DATA_STAMP = IO_STAMP;
+
+
+				
+				fx += lx; lx = 8;
+				if(d.length < (fx+lx)){
+					console.log("DATA IS NOT APPROPRIATE IN LENGTH");
+					return;
+				}
+				var unique_str = '';
+				for(var i = fx+lx; i>fx; i-=2){
+					unique_str += d.substr(i-2, 2);
+				}	
+				var UNIQUE_NO = Pad(parseInt(unique_str, 16), 6);
+				
+
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var VOLTAGE = HexToDec(String(v2)+String(v1));
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var CURRENT = HexToDec(String(v2)+String(v1));
+				
+				fx += lx; lx = 2;
+				var PF = parseInt(d.substr(fx, lx), 16);
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var KW = HexToDec(String(v2)+String(v1));
+
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var KVA = HexToDec(String(v2)+String(v1));
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v3 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v4 = d.substr(fx,lx);
+				var KWH = HexToDec(String(v4)+String(v3)+String(v2)+String(v1));
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v3 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v4 = d.substr(fx,lx);
+				var KVAH = HexToDec(String(v4)+String(v3)+String(v2)+String(v1));
+
+				
+				fx += lx; lx = 2;
+				var ON_OFF_STATUS = parseInt(d.substr(fx, lx), 16);
+				
+				fx += lx; lx = 6;
+				var IO_DATE = d.substr(fx, lx);
+				var IO_DD = Pad(parseInt(IO_DATE.substr(0, 2), 16), 2);
+				var IO_MM = Pad(parseInt(IO_DATE.substr(2, 2), 16), 2);
+				var IO_YY = Pad(parseInt(IO_DATE.substr(4, 2), 16), 2);
+				
+				fx += lx; lx = 6;
+				var IO_TIME = d.substr(fx, lx);
+				var IO_HH = Pad(parseInt(IO_TIME.substr(0, 2), 16), 2);
+				var IO_MI = Pad(parseInt(IO_TIME.substr(2, 2), 16), 2);
+				var IO_SS = Pad(parseInt(IO_TIME.substr(4, 2), 16), 2);
+				var ON_OFF_TIME = "20"+IO_YY+"-"+IO_MM+"-"+IO_DD+" "+IO_HH+":"+IO_MI+":"+IO_SS;
+				
+				fx += lx; lx = 2;
+				var PWM = parseInt(d.substr(fx, lx), 16);
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var SCHEDULE_ON_TIME = Pad(HexToDec(v1),2)+':'+Pad(HexToDec(v2),2);
+				
+				fx += lx; lx = 2;
+				var v1 = d.substr(fx,lx);
+				fx += lx; lx = 2;
+				var v2 = d.substr(fx,lx);
+				var SCHEDULE_OFF_TIME = Pad(HexToDec(v1),2)+':'+Pad(HexToDec(v2),2);
+				var LIGHT_ON_HOURS = SCHEDULE_OFF_TIME;
+				
+				fx += lx; lx = 2;
+				var ANALOG_INPUT = d.substr(fx, lx);
+				
+				fx += lx; lx = 2;
+				var RELAY_STATUS = d.substr(fx, lx);
+
+				var insertq = {
+					dev_uid: DEV_UID,
+					unique_no: UNIQUE_NO,
+					data_stamp: DATA_STAMP,
+					actual_data: ACTUAL_DATA,
+					datalength: ACTUALDATALENGTH,
+					voltage: VOLTAGE,
+					current: CURRENT,
+					pf: PF,
+					kw: KW,
+					kva: KVA,
+					kwh: KWH,
+					kvah: KVAH,
+					on_off_status: ON_OFF_STATUS,
+					on_off_time: ON_OFF_TIME,
+					pwm: PWM,
+					schedule_on_time: SCHEDULE_ON_TIME,
+					schedule_off_time: SCHEDULE_OFF_TIME,
+					light_on_hours: LIGHT_ON_HOURS,
+					analog_input: ANALOG_INPUT,
+					relay_status: RELAY_STATUS
+				}
+				console.log(insertq);
+
+				var updateq = {
+					data_stamp: DATA_STAMP,
+					actual_data: ACTUAL_DATA,
+					datalength: ACTUALDATALENGTH,
+					voltage: VOLTAGE,
+					current: CURRENT,
+					pf: PF,
+					kw: KW,
+					kva: KVA,
+					kwh: KWH,
+					kvah: KVAH,
+					on_off_status: ON_OFF_STATUS,
+					on_off_time: ON_OFF_TIME,
+					pwm: PWM,
+					schedule_on_time: SCHEDULE_ON_TIME,
+					schedule_off_time: SCHEDULE_OFF_TIME,
+					light_on_hours: LIGHT_ON_HOURS,
+					analog_input: ANALOG_INPUT,
+					relay_status: RELAY_STATUS
+				}
+
+				pool.getConnection(function(err, connection) {
+					if (err){
+						console.log(err);
+					//	next();
+					}else{
+						var sql = 'INSERT INTO trans_received_data SET ?, insert_time = NOW();';
+						sql += 'UPDATE trans_last_data SET ?, update_time = NOW() WHERE dev_uid="'+DEV_UID+'";';
+						var q = connection.query(sql, [insertq, updateq], function (error, result) {
+							connection.release();
+							//console.log(q.sql());
+							//next();
+						});
+					}
+				})
+
+
+				var date = new Date();
+				var time = date.getTime();
+				const path = require('path');
+				var file = date.getUTCFullYear()+"-"+(date.getUTCMonth() + 1)+"-"+(date.getUTCDate())+".txt";
+				fs.exists(path.normalize(__dirname+'/../logs/'+file), function(exist){
+					if(exist){
+						var str = time + "," + JSON.stringify(data);
+						fs.appendFile(path.normalize(__dirname+'/../logs/'+file), '\r\n'+str, function(err1) {
+							if (err1) console.log(err1);
+						});
+						var mess = {'error':0,'message':'Task Added Successfully!','result':1};
+							res.send(JSON.stringify(mess));
+					}else{
+						fs.writeFile(path.normalize(__dirname+'/../logs/'+file), '--- Start Logging ---', function(err2) {
+							if (err2) console.log(err2);
+							console.log('NEW LOG FILE CREATED!');
+						});
+						var mess = {'error':0,'message':'Task Added Successfully!','result':1};
+							res.send(JSON.stringify(mess));
+					}
+				});
+		}
+	}
+});
+router.post('/device-list', checkAuth, function(req, res, next) {
+	var ulbcode = req.body.ulbcode;
+	
+	var perms = req.permissions;
+	console.log('PERMISSION STATE: '+perms.state_perm);
+	
+	var sql = "SELECT md.dev_uid, md.location_lat, md.location_lng, md.location, md.unique_no, dld.voltage, dld.current, dld.kw, dld.kwh, dld.on_off_status, dld.on_off_time, dld.data_stamp, dld.update_time FROM master_device md "+
+			"LEFT JOIN trans_last_data dld ON dld.dev_uid = md.dev_uid ";
+
+		pool.getConnection(function(err, connection) {
+			if (err) {
+				console.log(err);
+				var mess = {'error':1,'message':'Database query error!','result':[],'s':sql};
+				res.send(JSON.stringify(mess));
+			}else{
+				connection.query(sql, function (error, result) {
+					connection.release();
+
+					var o = {};
+					o.devices = result;
+					o.time = new Date();
+				 	var mess = {'error':0,'message':'Devices!','result':o};
+					res.send(JSON.stringify(mess));
+				});
+			}
+		});
+});
+
+function Pad (str, max) {
+	str = str.toString();
+	return str.length < max ? Pad("0" + str, max) : str;
+}
+function HexToFloat(value){
+	return new Buffer(value, 'hex').readFloatBE(0).toFixed(3);
+}
+function HexToDecimal(value){
+	return parseInt(Pad(value,4), 16);
+}
+function HexToBin(value){
+	var bytes = "";
+	for(var i=0; i< value.length; i++){
+		bytes += Pad(parseInt(value.substr(i, 1), 16).toString(2), 4);
+	}
+	return bytes;
+}
+function getHexToDecimal(v1,v2){
+	return String(HexToDecimal(String(v2)+String(v1)));//+String(HexToDecimal(v2));
+	//return String(HexToFloat(v1))+String(HexToFloat(v2));
+}
+function DecToHex(dec) {
+    var number = Number(dec).toString(16).toUpperCase()
+    if( (number.length % 2) > 0 ) { number= "0" + number }
+    return number;
+}
+function HexToDec(value){
+	return parseInt(value, 16);
+}
+
+
+function a(){
+	return 10;
+}
+function b(){
+	return 20;
+}
+
+module.exports = router;
