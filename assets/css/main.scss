@@ -1,0 +1,253 @@
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/Montserrat-Bold.woff2') format('woff2'),
+        url('../fonts/Montserrat-Bold.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/Montserrat-Regular.woff2') format('woff2'),
+        url('../fonts/Montserrat-Regular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/Montserrat-Light.woff2') format('woff2'),
+        url('../fonts/Montserrat-Light.woff') format('woff');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/Montserrat-Italic.woff2') format('woff2'),
+        url('../fonts/Montserrat-Italic.woff') format('woff');
+    font-weight: normal;
+    font-style: italic;
+    font-display: swap;
+}
+
+h4{
+    font-family: 'Montserrat';
+    font-weight: 500;
+}
+
+table{
+    thead{
+        font-family: Montserrat;
+        tr{
+            th{
+                font-weight: 700;
+            }
+            
+        }
+    }
+    tbody{
+        tr{
+            td{
+                font-family: Montserrat;
+            }
+        }
+    }
+}
+
+#__layout{
+    background-color: #f7f7f7;
+}
+
+.badge{
+    font-weight: 500;
+}
+
+.info-box{
+    border: 2px solid #ddd;
+    box-shadow: rgba(99, 99, 99, 0.2) 0px 2px 8px 0px;
+    background-color: #ffffff;
+    .card-body {
+        padding: 0.75rem;
+        h6{
+            /*color: #122464;*/
+            margin-bottom: 0px;
+        }
+        .card-img{
+            max-width: 48px;
+            float: right;
+            top: 10px;
+            position: absolute;
+            right: 10px;
+        }
+    }
+    .card-text{
+        font-size: 1.2rem;
+        font-weight: 700;
+        small{
+            font-size: 1rem;
+        }
+        margin-bottom: -5px;
+    }
+    .icon{
+        position: absolute;
+        top: 15px;
+        right: 10px;
+        color: #000;
+    }
+    
+}
+.color-white{
+
+    fill: #ffffff !important;
+}
+
+
+.no-padding {
+    .card-body{
+        padding: 0rem;
+    }
+    
+}
+.table thead tr{
+    border: 1px solid;
+}
+.table thead tr th {
+    font-family: Montserrat;
+    font-weight: 600;
+    font-size: 0.8rem;
+    background-color: #fff;
+    padding: 0.5rem 0.5rem;
+}
+.table th, .table td {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.85rem;
+    vertical-align: middle;
+}
+.table {
+    background-color: #fff;
+}
+
+.icon-btn{
+	width: 30px;
+	height: 30px;
+	border-radius: 50px !important;
+	padding: 2px;
+}
+
+.icon.light{
+    color: #ffffff;
+}
+
+.w-120{
+    min-width: 100px;
+}
+
+.breadcrumb {
+    padding: 0.45rem 1rem;
+    background-color: #f7f7f7;
+}
+
+
+.bg-gray {
+    background-image: linear-gradient( #4055B2 , #0e1a4e );
+}
+.bg-blue{
+    background-color: #122464;
+    color: #fff;
+}
+.relative {
+    position: relative;
+}
+.flex {
+    display: flex;
+}
+.min-h-screen {
+    min-height: 100vh;
+}
+.justify-center {
+    justify-content: center;
+}
+.px-8 {
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+.max-w-4xl {
+    max-width: 35rem;
+}
+.mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+.mr-auto, .mx-auto {
+    margin-right: auto !important;
+}
+.items-center {
+    align-items: center;
+}
+.rounded {
+    border-radius: 0.6rem !important;
+    
+}
+.overflow-hidden{
+    overflow: hidden;
+}
+.mt-8 {
+    margin-top: 2rem;
+}
+.p-6 {
+    padding: 3.0rem;
+}
+.px-8 {
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+.shadow {
+    box-shadow: 0 0.5rem 1rem rgb(0 0 0 / 15%) !important;
+}
+
+.text-bold{
+    font-weight: bold;
+}
+
+.googlemap{
+	width:100%;
+	height: 600px;
+	border: 6px solid #FFF;
+}
+
+.login-page{
+    .left-side{
+        /*display: flex;*/
+        align-items: center;
+
+        .heading{
+            font-style: italic;
+            text-align: center !important;
+        }
+    }
+    .right-side{
+        label{
+            font-style: italic;
+        }
+        input{
+            background-color: #f7f7f7;
+            border-radius: 0.4rem;
+        }
+    }
+}
+
+.w-25per{
+    float: left;
+    width: 25%;
+}
+
+
+@media (max-width: 575.98px) { 
+    .navbar-brand{
+        font-size: 1rem;
+    }
+}
